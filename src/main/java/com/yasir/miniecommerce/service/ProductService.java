@@ -51,11 +51,13 @@ public class ProductService {
     }
 
     // READ - TEK ÜRÜN
-    public Product getProductById(Long id) {
+    public ProductResponse getProductById(Long id) {
 
-        return productRepository.findById(id)
+        Product product = productRepository.findById(id)
                 .orElseThrow(() ->
                         new ProductNotFoundException("Ürün bulunamadı: " + id));
+
+        return productMapper.toResponse(product);
     }
 
     // UPDATE
