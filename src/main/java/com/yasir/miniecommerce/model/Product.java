@@ -25,6 +25,8 @@ public class Product {
     private BigDecimal price;
     @PositiveOrZero(message = "Stok negatif olamaz")
     private Integer stock;
+    @Version
+    private Long version;
 
     public Product() {}
     public Product(String name, BigDecimal price, Integer stock) {

@@ -1,8 +1,15 @@
 package com.yasir.miniecommerce.dto;
 
-public class RegisterRequest {
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
+public class RegisterRequest {
+    @NotBlank(message = "Email boş bırakılamaz")
+    @Email(message = "Geçerli bir email adresi giriniz")
     private String email;
+    @NotBlank(message = "Şifre boş bırakılamaz")
+    @Size(min = 6, message = "Şifre en az 6 karakter olmalıdır")
     private String password;
 
     public String getEmail() {
