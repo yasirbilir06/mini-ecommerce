@@ -7,6 +7,11 @@ import com.yasir.miniecommerce.mapper.ProductMapper;
 import com.yasir.miniecommerce.model.Product;
 import com.yasir.miniecommerce.repository.ProductRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
@@ -42,12 +47,15 @@ public class ProductService {
     }
 
     // READ - TÜM ÜRÜNLER
-    public List<ProductResponse> getAllProducts() {
+    public Page<ProductResponse> getAllProducts(Pageable pageable) {
+        return productRepository.findAll(pageable)
+                .map(productMapper::toResponse);
+    }
+    // READ - SAYFALANMIŞ ÜRÜNLER
+    public Page<ProductResponse> getProducts(Pageable pageable) {
 
-        return productRepository.findAll()
-                .stream()
-                .map(productMapper::toResponse)
-                .toList();
+        return productRepository.findAll(pageable)
+                .map(productMapper::toResponse);
     }
 
     // READ - TEK ÜRÜN

@@ -7,6 +7,7 @@ import com.yasir.miniecommerce.service.OrderService;
 
 import jakarta.validation.Valid;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +26,7 @@ public class OrderController {
     // Sipariş oluştur.
     @PreAuthorize("isAuthenticated()")
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse createOrder(
             @Valid @RequestBody OrderRequest orderRequest) {
 

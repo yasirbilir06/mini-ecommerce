@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import jakarta.persistence.Version;
 
 @Entity
 @Table(name = "orders")
@@ -25,6 +26,8 @@ public class Order {
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
+    @Version
+    private Long version;
 
     public User getUser() {
         return user;

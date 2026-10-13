@@ -1,6 +1,6 @@
 package com.yasir.miniecommerce.exception;
 
-
+import com.yasir.miniecommerce.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -12,71 +12,116 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import java.util.HashMap;
 import java.util.Map;
 
-// Spring, Controller'larda oluşan hataları bu class'ta yönetebilir.
+// Controller katmanındaki hataları merkezi olarak yönetir.
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    // DTO validation hataları: 400 Bad Request
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<?> handleValidationException(
             MethodArgumentNotValidException exception) {
-        // Hataları alan → mesaj şeklinde saklayacağım.
+
         Map<String, String> errors = new HashMap<>();
-        // Bütün validation hatalarını tek tek dolaş.
-        for (FieldError error : exception.getBindingResult().getFieldErrors()) {
+
+        for (FieldError error :
+                exception.getBindingResult().getFieldErrors()) {
             errors.put(error.getField(), error.getDefaultMessage());
         }
 
-        return ResponseEntity.badRequest().body(errors);
+        ErrorResponse response = new ErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Gönderilen veriler geçersiz."
+        );
+
+        return ResponseEntity.badRequest().body(
+                Map.of(
+                        "status", response.getStatus(),
+                        "message", response.getMessage(),
+                        "timestamp", response.getTimestamp(),
+                        "errors", errors
+                )
+        );
     }
 
+    // Ürün bulunamadı: 404
     @ExceptionHandler(ProductNotFoundException.class)
-    public ResponseEntity<?> handleProductNotFoundException(
+    public ResponseEntity<ErrorResponse> handleProductNotFoundException(
             ProductNotFoundException exception) {
 
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(exception.getMessage());
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
     }
 
-    @ExceptionHandler(InsufficientStockException.class)
-    public ResponseEntity<?> handleInsufficientStockException(
-            InsufficientStockException exception) {
-
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(exception.getMessage());
-    }
-
+    // Kullanıcı bulunamadı: 404
     @ExceptionHandler(UserNotFoundException.class)
-    public ResponseEntity<?> handleUserNotFoundException(
+    public ResponseEntity<ErrorResponse> handleUserNotFoundException(
             UserNotFoundException exception) {
 
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(exception.getMessage());
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
     }
 
+    // Sipariş bulunamadı: 404
     @ExceptionHandler(OrderNotFoundException.class)
-    public ResponseEntity<?> handleOrderNotFoundException(
+    public ResponseEntity<ErrorResponse> handleOrderNotFoundException(
             OrderNotFoundException exception) {
 
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(exception.getMessage());
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage()
+        );
     }
 
+    // Yetersiz stok: 409
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ErrorResponse> handleInsufficientStockException(
+            InsufficientStockException exception) {
+
+        return buildErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage()
+        );
+    }
+
+    // Geçersiz sipariş durumu: 409
     @ExceptionHandler(InvalidOrderStatusException.class)
-    public ResponseEntity<?> handleInvalidOrderStatusException(
+    public ResponseEntity<ErrorResponse> handleInvalidOrderStatusException(
             InvalidOrderStatusException exception) {
 
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(exception.getMessage());
+        return buildErrorResponse(
+                HttpStatus.CONFLICT,
+                exception.getMessage()
+        );
     }
 
+    // Stok veya optimistic locking çakışması: 409
     @ExceptionHandler({
             StockConflictException.class,
             ObjectOptimisticLockingFailureException.class
     })
-    public ResponseEntity<?> handleStockConflictException(
+    public ResponseEntity<ErrorResponse> handleStockConflictException(
             Exception exception) {
 
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body("Ürün stoğu başka bir işlem tarafından güncellendi. Lütfen tekrar deneyin.");
+        return buildErrorResponse(
+                HttpStatus.CONFLICT,
+                "Veri başka bir işlem tarafından güncellendi. Lütfen tekrar deneyin."
+        );
     }
 
+    // Ortak hata yanıtı oluşturur.
+    private ResponseEntity<ErrorResponse> buildErrorResponse(
+            HttpStatus status,
+            String message) {
+
+        ErrorResponse response = new ErrorResponse(
+                status.value(),
+                message
+        );
+
+        return ResponseEntity.status(status).body(response);
+    }
 }

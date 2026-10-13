@@ -10,7 +10,7 @@ import com.yasir.miniecommerce.model.*;
 import com.yasir.miniecommerce.repository.OrderRepository;
 import com.yasir.miniecommerce.repository.ProductRepository;
 import com.yasir.miniecommerce.repository.UserRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
@@ -61,14 +61,13 @@ public class OrderService {
 
         for (OrderItemRequest itemRequest : request.getItems()) {
 
-            Product product = productRepository.findById(
+            Product product = productRepository.findByIdWithLock(
                             itemRequest.getProductId())
                     .orElseThrow(() ->
                             new ProductNotFoundException(
                                     "Ürün bulunamadı: "
                                             + itemRequest.getProductId()
                             ));
-
             if (itemRequest.getQuantity() > product.getStock()) {
                 throw new InsufficientStockException(
                         "Yeterli stok yok: " + product.getName()
@@ -147,7 +146,7 @@ public class OrderService {
                 .getName();
 
         // Yalnızca giriş yapan kullanıcıya ait sipariş bulunur.
-        Order order = orderRepository.findByIdAndUserEmail(id, email)
+        Order order = orderRepository.findByIdAndUserEmailWithLock(id, email)
                 .orElseThrow(() ->
                         new OrderNotFoundException(
                                 "Sipariş bulunamadı: " + id
@@ -166,14 +165,7 @@ public class OrderService {
         }
 
         // Siparişteki ürünlerin stoklarını geri yükle.
-        for (OrderItem orderItem : order.getOrderItems()) {
-
-            Product product = orderItem.getProduct();
-
-            product.setStock(
-                    product.getStock() + orderItem.getQuantity()
-            );
-        }
+        restoreStock(order);
 
         order.setStatus(OrderStatus.CANCELLED);
 
@@ -188,7 +180,7 @@ public class OrderService {
             Long id,
             UpdateOrderStatusRequest request) {
 
-        Order order = orderRepository.findById(id)
+        Order order = orderRepository.findByIdWithLock(id)
                 .orElseThrow(() ->
                         new OrderNotFoundException(
                                 "Sipariş bulunamadı: " + id
@@ -200,16 +192,13 @@ public class OrderService {
         // İzin verilen sipariş durumu geçişlerini kontrol et.
         boolean validTransition = switch (currentStatus) {
 
-            case PENDING ->
-                    newStatus == OrderStatus.CONFIRMED
-                            || newStatus == OrderStatus.CANCELLED;
+            case PENDING -> newStatus == OrderStatus.CONFIRMED
+                    || newStatus == OrderStatus.CANCELLED;
 
-            case CONFIRMED ->
-                    newStatus == OrderStatus.SHIPPED
-                            || newStatus == OrderStatus.CANCELLED;
+            case CONFIRMED -> newStatus == OrderStatus.SHIPPED
+                    || newStatus == OrderStatus.CANCELLED;
 
-            case SHIPPED ->
-                    newStatus == OrderStatus.DELIVERED;
+            case SHIPPED -> newStatus == OrderStatus.DELIVERED;
 
             case DELIVERED, CANCELLED -> false;
         };
@@ -225,14 +214,7 @@ public class OrderService {
         // Yönetici siparişi iptal ederse stokları geri yükle.
         if (newStatus == OrderStatus.CANCELLED) {
 
-            for (OrderItem orderItem : order.getOrderItems()) {
-
-                Product product = orderItem.getProduct();
-
-                product.setStock(
-                        product.getStock() + orderItem.getQuantity()
-                );
-            }
+            restoreStock(order);
         }
 
         order.setStatus(newStatus);
@@ -240,5 +222,15 @@ public class OrderService {
         Order updatedOrder = orderRepository.save(order);
 
         return orderMapper.toResponse(updatedOrder);
+    }
+
+    private void restoreStock(Order order) {
+        for (OrderItem orderItem : order.getOrderItems()) {
+            Product product = orderItem.getProduct();
+
+            product.setStock(
+                    product.getStock() + orderItem.getQuantity()
+            );
+        }
     }
 }
