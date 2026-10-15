@@ -34,4 +34,8 @@ build/
 .vscode/
 
 application.properties
+.env
+.env.*
+!.env.example
+application-local.properties
 .DS_Store

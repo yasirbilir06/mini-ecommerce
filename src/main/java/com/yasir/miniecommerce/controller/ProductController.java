@@ -42,6 +42,7 @@ public class ProductController {
         return productService.getProductById(id);
     }
 
+
     // Yeni ürün oluştur (Yalnızca ADMIN)
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
