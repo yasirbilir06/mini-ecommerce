@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -26,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -229,6 +231,7 @@ class OrderServiceTest {
                 new BigDecimal("50.00"),
                 3
         );
+        ReflectionTestUtils.setField(product, "id", 1L);
 
         OrderItem item = new OrderItem();
         item.setProduct(product);
@@ -252,6 +255,9 @@ class OrderServiceTest {
                 1L,
                 "test@example.com"
         )).thenReturn(Optional.of(order));
+
+        when(productRepository.findByIdWithLock(1L))
+                .thenReturn(Optional.of(product));
 
         when(orderRepository.save(any(Order.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -279,6 +285,7 @@ class OrderServiceTest {
 
         verify(orderRepository).save(order);
         verify(orderMapper).toResponse(order);
+        verify(productRepository).findByIdWithLock(1L);
 
         log.info("ADIM 6: Sipariş kaydedildi ve mapper çağrıldı.");
         log.info("========== TEST BAŞARIYLA TAMAMLANDI ==========");
@@ -357,6 +364,7 @@ class OrderServiceTest {
                 new BigDecimal("50.00"),
                 3
         );
+        ReflectionTestUtils.setField(product, "id", 1L);
 
         OrderItem item = new OrderItem();
         item.setProduct(product);
@@ -380,6 +388,9 @@ class OrderServiceTest {
         when(orderRepository.findByIdWithLock(1L))
                 .thenReturn(Optional.of(order));
 
+        when(productRepository.findByIdWithLock(1L))
+                .thenReturn(Optional.of(product));
+
         when(orderRepository.save(any(Order.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -400,6 +411,7 @@ class OrderServiceTest {
 
         verify(orderRepository).save(order);
         verify(orderMapper).toResponse(order);
+        verify(productRepository).findByIdWithLock(1L);
 
         log.info("ADIM 4: Yeni stok: {}", product.getStock());
         log.info("ADIM 5: Yeni sipariş durumu: {}", order.getStatus());
@@ -616,5 +628,149 @@ class OrderServiceTest {
         log.info("ADIM 3: Dönen response doğrulandı.");
         log.info("ADIM 4: Repository ve mapper çağrıları doğrulandı.");
         log.info("========== TEST BAŞARIYLA TAMAMLANDI ==========");
+    }
+
+    @Test
+    void createOrder_shouldLockProductsInAscendingIdOrder_andKeepRequestLineOrder() {
+        User user = new User();
+        user.setEmail("test@example.com");
+
+        Product product10 = productWithId(10L, 10);
+        Product product20 = productWithId(20L, 10);
+        Product product30 = productWithId(30L, 10);
+
+        when(userRepository.findByEmail("test@example.com"))
+                .thenReturn(Optional.of(user));
+        when(productRepository.findByIdWithLock(10L)).thenReturn(Optional.of(product10));
+        when(productRepository.findByIdWithLock(20L)).thenReturn(Optional.of(product20));
+        when(productRepository.findByIdWithLock(30L)).thenReturn(Optional.of(product30));
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderMapper.toResponse(any(Order.class))).thenReturn(new OrderResponse());
+
+        OrderRequest request = orderRequest(30L, 10L, 20L);
+
+        orderService.createOrder(request);
+
+        InOrder lockOrder = inOrder(productRepository);
+        lockOrder.verify(productRepository).findByIdWithLock(10L);
+        lockOrder.verify(productRepository).findByIdWithLock(20L);
+        lockOrder.verify(productRepository).findByIdWithLock(30L);
+
+        org.mockito.ArgumentCaptor<Order> savedOrder =
+                org.mockito.ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(savedOrder.capture());
+        assertEquals(
+                List.of(30L, 10L, 20L),
+                savedOrder.getValue().getOrderItems().stream()
+                        .map(item -> item.getProduct().getId())
+                        .toList()
+        );
+        assertEquals(9, product10.getStock());
+        assertEquals(9, product20.getStock());
+        assertEquals(9, product30.getStock());
+    }
+
+    @Test
+    void createOrder_shouldLockDuplicateProductOnce_andKeepSeparateOrderLines() {
+        User user = new User();
+        user.setEmail("test@example.com");
+        Product product = productWithId(10L, 10);
+
+        when(userRepository.findByEmail("test@example.com"))
+                .thenReturn(Optional.of(user));
+        when(productRepository.findByIdWithLock(10L)).thenReturn(Optional.of(product));
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderMapper.toResponse(any(Order.class))).thenReturn(new OrderResponse());
+
+        OrderItemRequest firstItem = orderItemRequest(10L, 2);
+        OrderItemRequest secondItem = orderItemRequest(10L, 3);
+        OrderRequest request = new OrderRequest();
+        request.setItems(List.of(firstItem, secondItem));
+
+        orderService.createOrder(request);
+
+        verify(productRepository, times(1)).findByIdWithLock(10L);
+        assertEquals(5, product.getStock());
+
+        org.mockito.ArgumentCaptor<Order> savedOrder =
+                org.mockito.ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).save(savedOrder.capture());
+        assertEquals(2, savedOrder.getValue().getOrderItems().size());
+        assertEquals(
+                List.of(2, 3),
+                savedOrder.getValue().getOrderItems().stream()
+                        .map(OrderItem::getQuantity)
+                        .toList()
+        );
+    }
+
+    @Test
+    void cancelMyOrder_shouldLockProductsInAscendingIdOrder_andRestoreStock() {
+        User user = new User();
+        user.setEmail("test@example.com");
+
+        Product product10 = productWithId(10L, 4);
+        Product product20 = productWithId(20L, 5);
+        Product product30 = productWithId(30L, 6);
+        Order order = new Order();
+        order.setUser(user);
+        order.setStatus(OrderStatus.PENDING);
+        order.setOrderItems(List.of(
+                orderItem(order, product30, 3),
+                orderItem(order, product10, 1),
+                orderItem(order, product20, 2)
+        ));
+
+        when(orderRepository.findByIdAndUserEmailWithLock(1L, "test@example.com"))
+                .thenReturn(Optional.of(order));
+        when(productRepository.findByIdWithLock(10L)).thenReturn(Optional.of(product10));
+        when(productRepository.findByIdWithLock(20L)).thenReturn(Optional.of(product20));
+        when(productRepository.findByIdWithLock(30L)).thenReturn(Optional.of(product30));
+        when(orderRepository.save(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderMapper.toResponse(any(Order.class))).thenReturn(new OrderResponse());
+
+        orderService.cancelMyOrder(1L);
+
+        InOrder lockOrder = inOrder(productRepository);
+        lockOrder.verify(productRepository).findByIdWithLock(10L);
+        lockOrder.verify(productRepository).findByIdWithLock(20L);
+        lockOrder.verify(productRepository).findByIdWithLock(30L);
+        assertEquals(5, product10.getStock());
+        assertEquals(7, product20.getStock());
+        assertEquals(9, product30.getStock());
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+    }
+
+    private Product productWithId(Long id, int stock) {
+        Product product = new Product("Product " + id, new BigDecimal("10.00"), stock);
+        ReflectionTestUtils.setField(product, "id", id);
+        return product;
+    }
+
+    private OrderRequest orderRequest(Long... productIds) {
+        OrderRequest request = new OrderRequest();
+        request.setItems(java.util.Arrays.stream(productIds)
+                .map(id -> orderItemRequest(id, 1))
+                .toList());
+        return request;
+    }
+
+    private OrderItemRequest orderItemRequest(Long productId, int quantity) {
+        OrderItemRequest item = new OrderItemRequest();
+        item.setProductId(productId);
+        item.setQuantity(quantity);
+        return item;
+    }
+
+    private OrderItem orderItem(Order order, Product product, int quantity) {
+        OrderItem item = new OrderItem();
+        item.setOrder(order);
+        item.setProduct(product);
+        item.setQuantity(quantity);
+        item.setPrice(product.getPrice());
+        return item;
     }
 }

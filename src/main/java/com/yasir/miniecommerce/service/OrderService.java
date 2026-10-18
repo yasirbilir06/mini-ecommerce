@@ -15,7 +15,9 @@
     import org.springframework.stereotype.Service;
 
     import java.math.BigDecimal;
+    import java.util.HashMap;
     import java.util.List;
+    import java.util.Map;
 
     @Service
     public class OrderService {
@@ -57,17 +59,17 @@
 
             order.setUser(user);
 
+            Map<Long, Product> productsById = lockProductsInAscendingOrder(
+                    request.getItems().stream()
+                            .map(OrderItemRequest::getProductId)
+                            .toList()
+            );
+
             BigDecimal totalPrice = BigDecimal.ZERO;
 
             for (OrderItemRequest itemRequest : request.getItems()) {
 
-                Product product = productRepository.findByIdWithLock(
-                                itemRequest.getProductId())
-                        .orElseThrow(() ->
-                                new ProductNotFoundException(
-                                        "Ürün bulunamadı: "
-                                                + itemRequest.getProductId()
-                                ));
+                Product product = productsById.get(itemRequest.getProductId());
                 if (itemRequest.getQuantity() > product.getStock()) {
                     throw new InsufficientStockException(
                             "Yeterli stok yok: " + product.getName()
@@ -225,12 +227,37 @@
         }
 
         private void restoreStock(Order order) {
+            Map<Long, Product> productsById = lockProductsInAscendingOrder(
+                    order.getOrderItems().stream()
+                            .map(orderItem -> orderItem.getProduct().getId())
+                            .toList()
+            );
+
             for (OrderItem orderItem : order.getOrderItems()) {
-                Product product = orderItem.getProduct();
+                Product product = productsById.get(orderItem.getProduct().getId());
 
                 product.setStock(
                         product.getStock() + orderItem.getQuantity()
                 );
             }
+        }
+
+        private Map<Long, Product> lockProductsInAscendingOrder(List<Long> productIds) {
+            Map<Long, Product> productsById = new HashMap<>();
+
+            productIds.stream()
+                    .distinct()
+                    .sorted()
+                    .forEach(productId -> {
+                        Product product = productRepository.findByIdWithLock(productId)
+                                .orElseThrow(() ->
+                                        new ProductNotFoundException(
+                                                "Ürün bulunamadı: " + productId
+                                        )
+                                );
+                        productsById.put(productId, product);
+                    });
+
+            return productsById;
         }
     }

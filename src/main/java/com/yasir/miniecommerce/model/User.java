@@ -3,7 +3,12 @@ package com.yasir.miniecommerce.model;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "users")
+@Table(
+        name = "users",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_users_email", columnNames = "email")
+        }
+)
 public class User {
 
     @Id

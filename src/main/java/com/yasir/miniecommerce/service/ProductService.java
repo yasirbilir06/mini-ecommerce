@@ -6,14 +6,9 @@ import com.yasir.miniecommerce.exception.ProductNotFoundException;
 import com.yasir.miniecommerce.mapper.ProductMapper;
 import com.yasir.miniecommerce.model.Product;
 import com.yasir.miniecommerce.repository.ProductRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 // Bu class benim servis katmanım, bunu sen yönet dedik.
 @Service

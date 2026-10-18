@@ -4,6 +4,8 @@ import com.yasir.miniecommerce.dto.LoginRequest;
 import com.yasir.miniecommerce.dto.LoginResponse;
 import com.yasir.miniecommerce.dto.RegisterRequest;
 import com.yasir.miniecommerce.dto.RegisterResponse;
+import com.yasir.miniecommerce.exception.DuplicateEmailException;
+import com.yasir.miniecommerce.exception.InvalidCredentialsException;
 import com.yasir.miniecommerce.model.User;
 import com.yasir.miniecommerce.repository.UserRepository;
 import org.springframework.stereotype.Service;
@@ -25,7 +27,9 @@ public class AuthService {
     }
 
     public RegisterResponse register(RegisterRequest request) {
-
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new DuplicateEmailException("Bu e-posta adresi zaten kullanılıyor");
+        }
         User user = new User();
 
         user.setEmail(request.getEmail());
@@ -49,13 +53,13 @@ public class AuthService {
 
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() ->
-                        new RuntimeException("Kullanıcı bulunamadı"));
+                        new InvalidCredentialsException("E-posta veya şifre hatalı"));
 
         if (!passwordEncoder.matches(
                 request.getPassword(),
                 user.getPassword())) {
 
-            throw new RuntimeException("Şifre yanlış");
+            throw new InvalidCredentialsException("E-posta veya şifre hatalı");
         }
 
         String token = jwtService.generateToken(user.getEmail());
