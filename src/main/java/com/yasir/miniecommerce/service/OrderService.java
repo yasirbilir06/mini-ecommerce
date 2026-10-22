@@ -1,23 +1,37 @@
-    package com.yasir.miniecommerce.service;
+package com.yasir.miniecommerce.service;
 
-    import com.yasir.miniecommerce.dto.OrderItemRequest;
-    import com.yasir.miniecommerce.dto.OrderRequest;
-    import com.yasir.miniecommerce.dto.OrderResponse;
-    import com.yasir.miniecommerce.dto.UpdateOrderStatusRequest;
-    import com.yasir.miniecommerce.exception.*;
-    import com.yasir.miniecommerce.mapper.OrderMapper;
-    import com.yasir.miniecommerce.model.*;
-    import com.yasir.miniecommerce.repository.OrderRepository;
-    import com.yasir.miniecommerce.repository.ProductRepository;
-    import com.yasir.miniecommerce.repository.UserRepository;
-    import org.springframework.transaction.annotation.Transactional;
-    import org.springframework.security.core.context.SecurityContextHolder;
-    import org.springframework.stereotype.Service;
+import com.yasir.miniecommerce.dto.OrderRequest;
+import com.yasir.miniecommerce.dto.OrderResponse;
+import com.yasir.miniecommerce.dto.UpdateOrderStatusRequest;
+import com.yasir.miniecommerce.exception.IdempotencyKeyConflictException;
+import com.yasir.miniecommerce.exception.InvalidIdempotencyKeyException;
+import com.yasir.miniecommerce.exception.InvalidOrderStatusException;
+import com.yasir.miniecommerce.exception.OrderNotFoundException;
+import com.yasir.miniecommerce.exception.ProductNotFoundException;
+import com.yasir.miniecommerce.exception.UserNotFoundException;
+import com.yasir.miniecommerce.mapper.OrderMapper;
+import com.yasir.miniecommerce.model.Order;
+import com.yasir.miniecommerce.model.OrderItem;
+import com.yasir.miniecommerce.model.OrderStatus;
+import com.yasir.miniecommerce.model.Product;
+import com.yasir.miniecommerce.model.User;
+import com.yasir.miniecommerce.repository.OrderRepository;
+import com.yasir.miniecommerce.repository.ProductRepository;
+import com.yasir.miniecommerce.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-    import java.math.BigDecimal;
-    import java.util.HashMap;
-    import java.util.List;
-    import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
     @Service
     public class OrderService {
@@ -26,25 +40,25 @@
         private final ProductRepository productRepository;
         private final UserRepository userRepository;
         private final OrderMapper orderMapper;
+        private final OrderCreationTransaction orderCreationTransaction;
 
         public OrderService(
                 OrderRepository orderRepository,
                 ProductRepository productRepository,
                 UserRepository userRepository,
-                OrderMapper orderMapper) {
+                OrderMapper orderMapper,
+                OrderCreationTransaction orderCreationTransaction) {
 
             this.orderRepository = orderRepository;
             this.productRepository = productRepository;
             this.userRepository = userRepository;
             this.orderMapper = orderMapper;
+            this.orderCreationTransaction = orderCreationTransaction;
         }
 
-        // Sipariş oluşturur ve stokları azaltır.
-        @Transactional
-        public OrderResponse createOrder(OrderRequest request) {
-
-            Order order = new Order();
-            order.setStatus(OrderStatus.PENDING);
+        // Replays a committed request or delegates the atomic write to a separate transaction bean.
+        public OrderResponse createOrder(OrderRequest request, String idempotencyKey) {
+            idempotencyKey = normalizeIdempotencyKey(idempotencyKey);
 
             String email = SecurityContextHolder
                     .getContext()
@@ -57,53 +71,66 @@
                                     "Kullanıcı bulunamadı: " + email
                             ));
 
-            order.setUser(user);
-
-            Map<Long, Product> productsById = lockProductsInAscendingOrder(
-                    request.getItems().stream()
-                            .map(OrderItemRequest::getProductId)
-                            .toList()
+            String requestFingerprint = fingerprint(request);
+            Optional<Order> existingOrder = orderRepository.findByUserIdAndIdempotencyKey(
+                    user.getId(), idempotencyKey
             );
-
-            BigDecimal totalPrice = BigDecimal.ZERO;
-
-            for (OrderItemRequest itemRequest : request.getItems()) {
-
-                Product product = productsById.get(itemRequest.getProductId());
-                if (itemRequest.getQuantity() > product.getStock()) {
-                    throw new InsufficientStockException(
-                            "Yeterli stok yok: " + product.getName()
-                    );
-                }
-
-                // Stok miktarını azalt.
-                product.setStock(
-                        product.getStock() - itemRequest.getQuantity()
-                );
-
-                OrderItem orderItem = new OrderItem();
-
-                orderItem.setProduct(product);
-                orderItem.setQuantity(itemRequest.getQuantity());
-                orderItem.setPrice(product.getPrice());
-                orderItem.setOrder(order);
-
-                order.getOrderItems().add(orderItem);
-
-                // Ürün fiyatı x sipariş edilen miktar.
-                BigDecimal itemTotal = product.getPrice()
-                        .multiply(
-                                BigDecimal.valueOf(itemRequest.getQuantity())
-                        );
-
-                totalPrice = totalPrice.add(itemTotal);
+            if (existingOrder.isPresent()) {
+                return replayOrReject(existingOrder.get(), requestFingerprint);
             }
 
-            order.setTotalPrice(totalPrice);
+            try {
+                return orderCreationTransaction.createOrder(
+                        email, request, idempotencyKey, requestFingerprint
+                );
+            } catch (DataIntegrityViolationException exception) {
+                // A concurrent request may have committed the unique key while
+                // this transaction was inserting its reservation. Its transaction
+                // is now rolled back, so this lookup runs outside that transaction.
+                Optional<Order> concurrentlyCreated = orderRepository.findByUserIdAndIdempotencyKey(
+                        user.getId(), idempotencyKey
+                );
+                if (concurrentlyCreated.isEmpty()) {
+                    throw exception;
+                }
+                return replayOrReject(concurrentlyCreated.get(), requestFingerprint);
+            }
+        }
 
-            Order savedOrder = orderRepository.save(order);
+        private OrderResponse replayOrReject(Order order, String requestFingerprint) {
+            if (!requestFingerprint.equals(order.getRequestFingerprint())) {
+                throw new IdempotencyKeyConflictException(
+                        "Idempotency-Key daha önce farklı bir sipariş içeriğiyle kullanıldı."
+                );
+            }
+            return orderMapper.toResponse(order);
+        }
 
-            return orderMapper.toResponse(savedOrder);
+        private String normalizeIdempotencyKey(String idempotencyKey) {
+            if (idempotencyKey == null || idempotencyKey.isEmpty()
+                    || idempotencyKey.length() > 128
+                    || idempotencyKey.chars().anyMatch(character -> character < 33 || character > 126)) {
+                throw new InvalidIdempotencyKeyException(
+                        "Idempotency-Key zorunludur; 1-128 görünür ASCII karakter içermelidir."
+                );
+            }
+            return idempotencyKey.toLowerCase(Locale.ROOT);
+        }
+
+        private String fingerprint(OrderRequest request) {
+            StringBuilder canonicalRequest = new StringBuilder();
+            request.getItems().forEach(item -> canonicalRequest
+                    .append(item.getProductId())
+                    .append(':')
+                    .append(item.getQuantity())
+                    .append(';'));
+            try {
+                byte[] digest = MessageDigest.getInstance("SHA-256")
+                        .digest(canonicalRequest.toString().getBytes(StandardCharsets.UTF_8));
+                return HexFormat.of().formatHex(digest);
+            } catch (NoSuchAlgorithmException exception) {
+                throw new IllegalStateException("SHA-256 kullanılamıyor.", exception);
+            }
         }
 
         // Giriş yapan kullanıcının tüm siparişlerini getirir.

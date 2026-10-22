@@ -28,9 +28,11 @@ public class OrderController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse createOrder(
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String idempotencyKey,
             @Valid @RequestBody OrderRequest orderRequest) {
 
-        return orderService.createOrder(orderRequest);
+        return orderService.createOrder(orderRequest, idempotencyKey);
     }
 
     // Giriş yapan kullanıcının siparişlerini listele.

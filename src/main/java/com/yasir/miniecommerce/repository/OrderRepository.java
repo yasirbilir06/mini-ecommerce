@@ -1,6 +1,7 @@
 package com.yasir.miniecommerce.repository;
 
 import com.yasir.miniecommerce.model.Order;
+import org.springframework.data.jpa.repository.EntityGraph;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -11,6 +12,14 @@ import java.util.List;
 import java.util.Optional;
 
 public interface OrderRepository extends JpaRepository<Order, Long> {
+
+    @EntityGraph(attributePaths = {"user", "orderItems", "orderItems.product"})
+    @Query("SELECT DISTINCT o FROM Order o " +
+            "WHERE o.user.id = :userId AND o.idempotencyKey = :idempotencyKey")
+    Optional<Order> findByUserIdAndIdempotencyKey(
+            @Param("userId") Long userId,
+            @Param("idempotencyKey") String idempotencyKey
+    );
 
     List<Order> findByUserEmail(String email);
 

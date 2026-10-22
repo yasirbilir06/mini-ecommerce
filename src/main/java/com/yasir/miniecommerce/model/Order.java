@@ -8,7 +8,13 @@ import java.util.List;
 import jakarta.persistence.Version;
 
 @Entity
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_orders_user_idempotency_key",
+                columnNames = {"user_id", "idempotency_key"}
+        )
+)
 public class Order {
 
     @Id
@@ -26,6 +32,13 @@ public class Order {
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
+
+    @Column(name = "idempotency_key", length = 128)
+    private String idempotencyKey;
+
+    @Column(name = "request_fingerprint", length = 64)
+    private String requestFingerprint;
+
     @Version
     private Long version;
 
@@ -35,6 +48,22 @@ public class Order {
 
     public void setUser(User user) {
         this.user = user;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
+    }
+
+    public String getRequestFingerprint() {
+        return requestFingerprint;
+    }
+
+    public void setRequestFingerprint(String requestFingerprint) {
+        this.requestFingerprint = requestFingerprint;
     }
 
     public Order() {

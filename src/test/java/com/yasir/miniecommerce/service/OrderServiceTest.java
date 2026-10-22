@@ -30,8 +30,11 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Optional;
+import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -41,6 +44,9 @@ import com.yasir.miniecommerce.model.OrderItem;
 import com.yasir.miniecommerce.model.OrderStatus;
 import com.yasir.miniecommerce.exception.OrderNotFoundException;
 import com.yasir.miniecommerce.exception.InvalidOrderStatusException;
+import com.yasir.miniecommerce.exception.IdempotencyKeyConflictException;
+import com.yasir.miniecommerce.exception.InvalidIdempotencyKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceTest {
@@ -60,8 +66,14 @@ class OrderServiceTest {
     @Mock
     private OrderMapper orderMapper;
 
+    @Mock
+    private OrderCreationTransaction orderCreationTransaction;
+
     @InjectMocks
     private OrderService orderService;
+
+    @InjectMocks
+    private OrderCreationTransaction orderCreationService;
 
     @BeforeEach
     void setUp() {
@@ -82,6 +94,12 @@ class OrderServiceTest {
         log.info("TEST CLEANUP: SecurityContext temizleniyor.");
 
         SecurityContextHolder.clearContext();
+    }
+
+    private OrderResponse createTransactionOrder(OrderRequest request) {
+        return orderCreationService.createOrder(
+                "test@example.com", request, "unit-test-key", "unit-test-fingerprint"
+        );
     }
 
     @Test
@@ -137,7 +155,7 @@ class OrderServiceTest {
         // Act & Assert
         InsufficientStockException exception = assertThrows(
                 InsufficientStockException.class,
-                () -> orderService.createOrder(request)
+                () -> createTransactionOrder(request)
         );
 
         log.info(
@@ -195,7 +213,7 @@ class OrderServiceTest {
         // Act & Assert
         ProductNotFoundException exception = assertThrows(
                 ProductNotFoundException.class,
-                () -> orderService.createOrder(request)
+                () -> createTransactionOrder(request)
         );
 
         log.info("ADIM 4: Beklenen exception oluştu.");
@@ -646,11 +664,13 @@ class OrderServiceTest {
         when(productRepository.findByIdWithLock(30L)).thenReturn(Optional.of(product30));
         when(orderRepository.save(any(Order.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.saveAndFlush(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(orderMapper.toResponse(any(Order.class))).thenReturn(new OrderResponse());
 
         OrderRequest request = orderRequest(30L, 10L, 20L);
 
-        orderService.createOrder(request);
+        createTransactionOrder(request);
 
         InOrder lockOrder = inOrder(productRepository);
         lockOrder.verify(productRepository).findByIdWithLock(10L);
@@ -664,6 +684,14 @@ class OrderServiceTest {
                 List.of(30L, 10L, 20L),
                 savedOrder.getValue().getOrderItems().stream()
                         .map(item -> item.getProduct().getId())
+                        .toList()
+        );
+        assertSame(user, savedOrder.getValue().getUser());
+        assertEquals(new BigDecimal("30.00"), savedOrder.getValue().getTotalPrice());
+        assertEquals(
+                List.of(new BigDecimal("10.00"), new BigDecimal("10.00"), new BigDecimal("10.00")),
+                savedOrder.getValue().getOrderItems().stream()
+                        .map(OrderItem::getPrice)
                         .toList()
         );
         assertEquals(9, product10.getStock());
@@ -682,6 +710,8 @@ class OrderServiceTest {
         when(productRepository.findByIdWithLock(10L)).thenReturn(Optional.of(product));
         when(orderRepository.save(any(Order.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.saveAndFlush(any(Order.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(orderMapper.toResponse(any(Order.class))).thenReturn(new OrderResponse());
 
         OrderItemRequest firstItem = orderItemRequest(10L, 2);
@@ -689,7 +719,7 @@ class OrderServiceTest {
         OrderRequest request = new OrderRequest();
         request.setItems(List.of(firstItem, secondItem));
 
-        orderService.createOrder(request);
+        createTransactionOrder(request);
 
         verify(productRepository, times(1)).findByIdWithLock(10L);
         assertEquals(5, product.getStock());
@@ -703,6 +733,92 @@ class OrderServiceTest {
                 savedOrder.getValue().getOrderItems().stream()
                         .map(OrderItem::getQuantity)
                         .toList()
+        );
+        assertEquals(new BigDecimal("50.00"), savedOrder.getValue().getTotalPrice());
+    }
+
+    @Test
+    void createOrder_shouldReturnExistingResponse_whenKeyAndRequestMatch() throws Exception {
+        User user = new User();
+        user.setEmail("test@example.com");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        OrderRequest request = orderRequest(10L);
+        Order existing = new Order();
+        existing.setUser(user);
+        existing.setIdempotencyKey("same-key");
+        existing.setRequestFingerprint(fingerprint("10:1;"));
+        OrderResponse expected = new OrderResponse();
+
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(user));
+        when(orderRepository.findByUserIdAndIdempotencyKey(7L, "same-key"))
+                .thenReturn(Optional.of(existing));
+        when(orderMapper.toResponse(existing)).thenReturn(expected);
+
+        assertSame(expected, orderService.createOrder(request, "same-key"));
+        verifyNoInteractions(orderCreationTransaction);
+    }
+
+    @Test
+    void createOrder_shouldRejectDifferentRequest_whenKeyWasAlreadyUsed() throws Exception {
+        User user = new User();
+        user.setEmail("test@example.com");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        Order existing = new Order();
+        existing.setRequestFingerprint(fingerprint("10:1;"));
+
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(user));
+        when(orderRepository.findByUserIdAndIdempotencyKey(7L, "same-key"))
+                .thenReturn(Optional.of(existing));
+
+        assertThrows(
+                IdempotencyKeyConflictException.class,
+                () -> orderService.createOrder(orderRequest(10L, 10L), "same-key")
+        );
+        verifyNoInteractions(orderCreationTransaction);
+    }
+
+    @Test
+    void createOrder_shouldRejectMissingBlankOrOversizedKey() {
+        OrderRequest request = orderRequest(10L);
+
+        for (String invalidKey : List.of("", " ", "x".repeat(129))) {
+            assertThrows(
+                    InvalidIdempotencyKeyException.class,
+                    () -> orderService.createOrder(request, invalidKey)
+            );
+        }
+        assertThrows(
+                InvalidIdempotencyKeyException.class,
+                () -> orderService.createOrder(request, null)
+        );
+        verifyNoInteractions(userRepository, orderRepository, orderCreationTransaction);
+    }
+
+    @Test
+    void createOrder_shouldReplayCommittedConcurrentRequest_afterUniqueConstraintFailure() throws Exception {
+        User user = new User();
+        user.setEmail("test@example.com");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        OrderRequest request = orderRequest(10L);
+        Order existing = new Order();
+        existing.setRequestFingerprint(fingerprint("10:1;"));
+        OrderResponse expected = new OrderResponse();
+
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(user));
+        when(orderRepository.findByUserIdAndIdempotencyKey(7L, "same-key"))
+                .thenReturn(Optional.empty(), Optional.of(existing));
+        when(orderCreationTransaction.createOrder(
+                eq("test@example.com"), eq(request), eq("same-key"), anyString()
+        )).thenThrow(new DataIntegrityViolationException("duplicate key"));
+        when(orderMapper.toResponse(existing)).thenReturn(expected);
+
+        assertSame(expected, orderService.createOrder(request, "same-key"));
+    }
+
+    private String fingerprint(String value) throws Exception {
+        return HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256")
+                        .digest(value.getBytes(StandardCharsets.UTF_8))
         );
     }
 

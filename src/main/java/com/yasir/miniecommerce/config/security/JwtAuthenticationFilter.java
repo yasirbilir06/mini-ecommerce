@@ -52,9 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             email = jwtService.extractEmail(token);
-            System.out.println("JWT doğrulandı. Email: " + email);
         } catch (Exception e) {
-            e.printStackTrace();
             authenticationEntryPoint.commence(
                     request,
                     response,
@@ -68,11 +66,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         User user = userRepository.findByEmail(email)
                 .orElse(null);
-        System.out.println("Kullanıcı bulundu mu: " + (user != null));
-
-        if (user != null) {
-            System.out.println("Kullanıcı rolü: " + user.getRole());
-        }
 
         if (user != null) {
 
