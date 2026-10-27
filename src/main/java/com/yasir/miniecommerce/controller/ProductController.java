@@ -5,12 +5,14 @@ import com.yasir.miniecommerce.dto.ProductResponse;
 import com.yasir.miniecommerce.service.ProductService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.Operation;
+
 
 import java.util.List;
 
@@ -26,12 +28,24 @@ public class ProductController {
 
     // Tüm ürünleri listele
     @GetMapping
+    @Operation(summary = "Tüm ürünleri sayfalı ve sıralı getir")
     public Page<ProductResponse> getAllProducts(
-            @PageableDefault(
-                    size = 10,
-                    sort = "id",
-                    direction = Sort.Direction.ASC
-            ) Pageable pageable) {
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "id,asc") String sort
+    ) {
+        String[] sortParts = sort.split(",");
+        String property = sortParts[0];
+
+        Sort.Direction direction = sortParts.length > 1
+                ? Sort.Direction.fromString(sortParts[1])
+                : Sort.Direction.ASC;
+
+        Pageable pageable = PageRequest.of(
+                page,
+                Math.min(size, 100),
+                Sort.by(direction, property)
+        );
 
         return productService.getAllProducts(pageable);
     }
