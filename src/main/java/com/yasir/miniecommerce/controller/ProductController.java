@@ -34,12 +34,48 @@ public class ProductController {
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id,asc") String sort
     ) {
-        String[] sortParts = sort.split(",");
-        String property = sortParts[0];
+        if (page < 0) {
+            throw new IllegalArgumentException(
+                    "Page 0 veya daha büyük olmalıdır"
+            );
+        }
 
-        Sort.Direction direction = sortParts.length > 1
-                ? Sort.Direction.fromString(sortParts[1])
-                : Sort.Direction.ASC;
+        if (size < 1) {
+            throw new IllegalArgumentException(
+                    "Size en az 1 olmalıdır"
+            );
+        }
+        if (sort == null || sort.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Sort parametresi boş olamaz"
+            );
+        }
+
+        String[] sortParts = sort.split(",");
+
+        String property = sortParts[0];
+        if (!property.equals("id")
+                && !property.equals("name")
+                && !property.equals("price")
+                && !property.equals("stock")) {
+            throw new IllegalArgumentException(
+                    "Geçersiz sıralama alanı: " + property
+            );
+        }
+
+        Sort.Direction direction;
+
+        try {
+            direction = sortParts.length > 1
+                    ? Sort.Direction.fromString(sortParts[1])
+                    : Sort.Direction.ASC;
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Sıralama yönü asc veya desc olmalıdır"
+            );
+        }
+
+
 
         Pageable pageable = PageRequest.of(
                 page,

@@ -113,6 +113,17 @@ public class GlobalExceptionHandler {
         );
     }
 
+    // Geçersiz parametreler: 400 Bad Request
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgumentException(
+            IllegalArgumentException exception) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage()
+        );
+    }
+
     // Ortak hata yanıtı oluşturur.
     private ResponseEntity<ErrorResponse> buildErrorResponse(
             HttpStatus status,
