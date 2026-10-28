@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 
 import java.util.List;
@@ -96,6 +97,7 @@ public class ProductController {
     // Yeni ürün oluştur (Yalnızca ADMIN)
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
+    @SecurityRequirement(name = "bearerAuth")
     @ResponseStatus(HttpStatus.CREATED)
     public ProductResponse createProduct(
             @Valid @RequestBody ProductRequest productRequest) {
@@ -106,6 +108,7 @@ public class ProductController {
     // Ürünü güncelle (Yalnızca ADMIN)
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}")
+    @SecurityRequirement(name = "bearerAuth")
     public ProductResponse updateProduct(
             @PathVariable Long id,
             @Valid @RequestBody ProductRequest productRequest) {
@@ -116,6 +119,7 @@ public class ProductController {
     // Ürünü sil (Yalnızca ADMIN)
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
+    @SecurityRequirement(name = "bearerAuth")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProduct(@PathVariable Long id) {
         productService.deleteProduct(id);

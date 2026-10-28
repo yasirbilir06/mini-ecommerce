@@ -4,6 +4,7 @@ import com.yasir.miniecommerce.dto.OrderRequest;
 import com.yasir.miniecommerce.dto.OrderResponse;
 import com.yasir.miniecommerce.dto.UpdateOrderStatusRequest;
 import com.yasir.miniecommerce.service.OrderService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 
 import jakarta.validation.Valid;
 
@@ -15,6 +16,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/orders")
+@SecurityRequirement(name = "bearerAuth")
 public class OrderController {
 
     private final OrderService orderService;
