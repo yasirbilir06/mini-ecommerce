@@ -134,6 +134,7 @@ import java.util.Optional;
         }
 
         // Giriş yapan kullanıcının tüm siparişlerini getirir.
+        @Transactional(readOnly = true)
         public List<OrderResponse> getMyOrders() {
 
             String email = SecurityContextHolder

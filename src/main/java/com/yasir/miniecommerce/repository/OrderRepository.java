@@ -21,6 +21,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             @Param("idempotencyKey") String idempotencyKey
     );
 
+    @EntityGraph(attributePaths = {"user", "orderItems", "orderItems.product"})
     List<Order> findByUserEmail(String email);
 
     Optional<Order> findByIdAndUserEmail(Long id, String email);
