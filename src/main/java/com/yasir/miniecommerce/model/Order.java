@@ -10,10 +10,16 @@ import jakarta.persistence.Version;
 @Entity
 @Table(
         name = "orders",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_orders_user_idempotency_key",
-                columnNames = {"user_id", "idempotency_key"}
-        )
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_orders_user_idempotency_key",
+                        columnNames = {"user_id", "idempotency_key"}
+                ),
+                @UniqueConstraint(
+                        name = "uk_orders_stripe_payment_intent_id",
+                        columnNames = "stripe_payment_intent_id"
+                )
+        }
 )
 public class Order {
 
@@ -25,6 +31,17 @@ public class Order {
     // Enum'u database'de sayı olarak değil, yazı olarak sakla.
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", nullable = false)
+    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
+
+    @Column(name = "stripe_payment_intent_id")
+    private String stripePaymentIntentId;
+
+    @Column(name = "payment_currency", length = 3)
+    private String paymentCurrency;
+
     // Bir Order'ın birçok OrderItem'ı var ve ben bunları List olarak tutuyorum.
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL)
     private List<OrderItem> orderItems = new ArrayList<>();
@@ -92,6 +109,30 @@ public class Order {
 
     public void setStatus(OrderStatus status) {
         this.status = status;
+    }
+
+    public PaymentStatus getPaymentStatus() {
+        return paymentStatus;
+    }
+
+    public void setPaymentStatus(PaymentStatus paymentStatus) {
+        this.paymentStatus = paymentStatus;
+    }
+
+    public String getStripePaymentIntentId() {
+        return stripePaymentIntentId;
+    }
+
+    public void setStripePaymentIntentId(String stripePaymentIntentId) {
+        this.stripePaymentIntentId = stripePaymentIntentId;
+    }
+
+    public String getPaymentCurrency() {
+        return paymentCurrency;
+    }
+
+    public void setPaymentCurrency(String paymentCurrency) {
+        this.paymentCurrency = paymentCurrency;
     }
 
     public void setOrderItems(List<OrderItem> orderItems) {

@@ -6,7 +6,9 @@ import com.yasir.miniecommerce.dto.OrderResponse;
 import com.yasir.miniecommerce.exception.IdempotencyKeyConflictException;
 import com.yasir.miniecommerce.exception.InsufficientStockException;
 import com.yasir.miniecommerce.model.Product;
+import com.yasir.miniecommerce.model.PaymentStatus;
 import com.yasir.miniecommerce.model.User;
+import com.yasir.miniecommerce.repository.OrderRepository;
 import com.yasir.miniecommerce.repository.ProductRepository;
 import com.yasir.miniecommerce.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +44,9 @@ class OrderServiceIntegrationTest {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -117,6 +122,10 @@ class OrderServiceIntegrationTest {
         assertEquals(user.getEmail(), response.getUserEmail());
         assertEquals(new BigDecimal("23.50"), response.getTotalPrice());
         assertEquals(2, response.getItems().size());
+        assertEquals(
+                PaymentStatus.PENDING,
+                orderRepository.findById(response.getId()).orElseThrow().getPaymentStatus()
+        );
         assertEquals(3, productRepository.findById(firstProduct.getId()).orElseThrow().getStock());
         assertEquals(0, productRepository.findById(secondProduct.getId()).orElseThrow().getStock());
         assertEquals(

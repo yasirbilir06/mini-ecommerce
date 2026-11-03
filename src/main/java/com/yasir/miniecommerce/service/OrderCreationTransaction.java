@@ -10,6 +10,7 @@ import com.yasir.miniecommerce.mapper.OrderMapper;
 import com.yasir.miniecommerce.model.Order;
 import com.yasir.miniecommerce.model.OrderItem;
 import com.yasir.miniecommerce.model.OrderStatus;
+import com.yasir.miniecommerce.model.PaymentStatus;
 import com.yasir.miniecommerce.model.Product;
 import com.yasir.miniecommerce.model.User;
 import com.yasir.miniecommerce.repository.OrderRepository;
@@ -56,6 +57,7 @@ public class OrderCreationTransaction {
         Order order = new Order();
         order.setUser(user);
         order.setStatus(OrderStatus.PENDING);
+        order.setPaymentStatus(PaymentStatus.PENDING);
         order.setTotalPrice(BigDecimal.ZERO);
         order.setIdempotencyKey(idempotencyKey);
         order.setRequestFingerprint(requestFingerprint);
