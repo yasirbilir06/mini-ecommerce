@@ -13,6 +13,22 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: shopapi_test
+          MYSQL_USER: shopapi
+          MYSQL_PASSWORD: test_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -28,4 +44,8 @@ jobs:
         run: chmod +x mvnw
 
       - name: Run tests
+        env:
+          MYSQL_TEST_DB_URL: jdbc:mysql://127.0.0.1:3307/shopapi_test
+          MYSQL_TEST_DB_USERNAME: shopapi
+          MYSQL_TEST_DB_PASSWORD: test_password
         run: ./mvnw --batch-mode --no-transfer-progress clean verify
