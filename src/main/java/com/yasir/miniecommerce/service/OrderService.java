@@ -1,18 +1,26 @@
 package com.yasir.miniecommerce.service;
 
+import com.stripe.exception.ApiKeyMissingException;
+import com.stripe.exception.AuthenticationException;
+import com.stripe.exception.InvalidRequestException;
+import com.stripe.exception.StripeException;
+import com.stripe.model.PaymentIntent;
 import com.yasir.miniecommerce.dto.OrderRequest;
 import com.yasir.miniecommerce.dto.OrderResponse;
+import com.yasir.miniecommerce.dto.PaymentIntentResponse;
 import com.yasir.miniecommerce.dto.UpdateOrderStatusRequest;
 import com.yasir.miniecommerce.exception.IdempotencyKeyConflictException;
 import com.yasir.miniecommerce.exception.InvalidIdempotencyKeyException;
 import com.yasir.miniecommerce.exception.InvalidOrderStatusException;
 import com.yasir.miniecommerce.exception.OrderNotFoundException;
+import com.yasir.miniecommerce.exception.PaymentStateConflictException;
 import com.yasir.miniecommerce.exception.ProductNotFoundException;
 import com.yasir.miniecommerce.exception.UserNotFoundException;
 import com.yasir.miniecommerce.mapper.OrderMapper;
 import com.yasir.miniecommerce.model.Order;
 import com.yasir.miniecommerce.model.OrderItem;
 import com.yasir.miniecommerce.model.OrderStatus;
+import com.yasir.miniecommerce.model.PaymentStatus;
 import com.yasir.miniecommerce.model.Product;
 import com.yasir.miniecommerce.model.User;
 import com.yasir.miniecommerce.repository.OrderRepository;
@@ -41,19 +49,25 @@ import java.util.Optional;
         private final UserRepository userRepository;
         private final OrderMapper orderMapper;
         private final OrderCreationTransaction orderCreationTransaction;
+        private final StripePaymentService stripePaymentService;
+        private final PaymentIntentTransaction paymentIntentTransaction;
 
         public OrderService(
                 OrderRepository orderRepository,
                 ProductRepository productRepository,
                 UserRepository userRepository,
                 OrderMapper orderMapper,
-                OrderCreationTransaction orderCreationTransaction) {
+                OrderCreationTransaction orderCreationTransaction,
+                StripePaymentService stripePaymentService,
+                PaymentIntentTransaction paymentIntentTransaction) {
 
             this.orderRepository = orderRepository;
             this.productRepository = productRepository;
             this.userRepository = userRepository;
             this.orderMapper = orderMapper;
             this.orderCreationTransaction = orderCreationTransaction;
+            this.stripePaymentService = stripePaymentService;
+            this.paymentIntentTransaction = paymentIntentTransaction;
         }
 
         // Replays a committed request or delegates the atomic write to a separate transaction bean.
@@ -166,6 +180,63 @@ import java.util.Optional;
             return orderMapper.toResponse(order);
         }
 
+        /**
+         * Creates or safely reuses a Stripe PaymentIntent for the authenticated
+         * user's order. Database locks are held only inside PaymentIntentTransaction.
+         */
+        public PaymentIntentResponse createPaymentIntent(Long orderId)
+                throws StripeException {
+
+            String email = SecurityContextHolder
+                    .getContext()
+                    .getAuthentication()
+                    .getName();
+
+            PaymentIntentTransaction.PaymentIntentReservation reservation =
+                    paymentIntentTransaction.reservePaymentIntent(orderId, email);
+
+            PaymentIntent paymentIntent;
+            if (reservation.hasPersistedPaymentIntent()) {
+                paymentIntent = stripePaymentService.retrievePaymentIntent(
+                        reservation.existingPaymentIntentId()
+                );
+            } else {
+                try {
+                    paymentIntent = stripePaymentService.createPaymentIntent(
+                            reservation.amountInCents(),
+                            reservation.currency(),
+                            String.valueOf(reservation.orderId()),
+                            reservation.stripeIdempotencyKey()
+                    );
+                } catch (InvalidRequestException | AuthenticationException exception) {
+                    paymentIntentTransaction.markDefinitiveCreationFailure(orderId, email);
+                    throw exception;
+                } catch (ApiKeyMissingException exception) {
+                    paymentIntentTransaction.markDefinitiveCreationFailure(orderId, email);
+                    throw exception;
+                }
+
+                reservation = paymentIntentTransaction.recordPaymentIntent(
+                        orderId,
+                        email,
+                        paymentIntent.getId()
+                );
+            }
+
+            return toPaymentIntentResponse(paymentIntent, reservation);
+        }
+
+        public void handlePaymentIntentSucceeded(PaymentIntent paymentIntent) {
+            Long orderId = extractOrderId(paymentIntent);
+
+            paymentIntentTransaction.confirmPaymentIntentSucceeded(
+                    orderId,
+                    paymentIntent.getId(),
+                    paymentIntent.getAmount(),
+                    paymentIntent.getCurrency()
+            );
+        }
+
         // Kullanıcının kendi siparişini iptal eder ve stokları geri yükler.
         @Transactional
         public OrderResponse cancelMyOrder(Long id) {
@@ -193,6 +264,8 @@ import java.util.Optional;
                                 + currentStatus
                 );
             }
+
+            assertOrderCanBeCancelled(order);
 
             // Siparişteki ürünlerin stoklarını geri yükle.
             restoreStock(order);
@@ -244,6 +317,8 @@ import java.util.Optional;
             // Yönetici siparişi iptal ederse stokları geri yükle.
             if (newStatus == OrderStatus.CANCELLED) {
 
+                assertOrderCanBeCancelled(order);
+
                 restoreStock(order);
             }
 
@@ -252,6 +327,49 @@ import java.util.Optional;
             Order updatedOrder = orderRepository.save(order);
 
             return orderMapper.toResponse(updatedOrder);
+        }
+
+        private PaymentIntentResponse toPaymentIntentResponse(
+                PaymentIntent paymentIntent,
+                PaymentIntentTransaction.PaymentIntentReservation reservation) {
+
+            PaymentIntentResponse response = new PaymentIntentResponse();
+            response.setPaymentIntentId(paymentIntent.getId());
+            response.setClientSecret(paymentIntent.getClientSecret());
+            response.setAmount(reservation.amount());
+            response.setCurrency(reservation.currency());
+            response.setPaymentStatus(reservation.paymentStatus());
+
+            return response;
+        }
+
+        private Long extractOrderId(PaymentIntent paymentIntent) {
+            if (paymentIntent == null || paymentIntent.getMetadata() == null) {
+                throw new IllegalArgumentException("Webhook payment data is invalid.");
+            }
+
+            String orderIdValue = paymentIntent.getMetadata().get("orderId");
+            if (orderIdValue == null || orderIdValue.isBlank()) {
+                throw new IllegalArgumentException("Webhook payment data is invalid.");
+            }
+
+            try {
+                long orderId = Long.parseLong(orderIdValue);
+                if (orderId <= 0) {
+                    throw new IllegalArgumentException("Webhook payment data is invalid.");
+                }
+                return orderId;
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("Webhook payment data is invalid.");
+            }
+        }
+
+        private void assertOrderCanBeCancelled(Order order) {
+            if (order.getPaymentStatus() == PaymentStatus.PROCESSING) {
+                throw new PaymentStateConflictException(
+                        "Ödeme işlemi devam eden sipariş iptal edilemez."
+                );
+            }
         }
 
         private void restoreStock(Order order) {

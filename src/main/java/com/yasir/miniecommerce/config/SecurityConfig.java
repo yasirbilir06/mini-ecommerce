@@ -83,6 +83,10 @@ public class SecurityConfig {
 
                         .requestMatchers("/actuator/health/readiness").permitAll()
                         .requestMatchers(
+                                org.springframework.http.HttpMethod.POST,
+                                "/api/stripe/webhook"
+                        ).permitAll()
+                        .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/login"
                         ).permitAll()

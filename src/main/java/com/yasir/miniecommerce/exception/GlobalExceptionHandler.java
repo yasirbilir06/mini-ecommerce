@@ -1,5 +1,8 @@
 package com.yasir.miniecommerce.exception;
 
+import com.stripe.exception.ApiKeyMissingException;
+import com.stripe.exception.SignatureVerificationException;
+import com.stripe.exception.StripeException;
 import com.yasir.miniecommerce.dto.ErrorResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -180,5 +183,42 @@ public class GlobalExceptionHandler {
             IdempotencyKeyConflictException exception) {
 
         return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(PaymentStateConflictException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentStateConflict(
+            PaymentStateConflictException exception) {
+
+        return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(StripeException.class)
+    public ResponseEntity<ErrorResponse> handleStripeException(
+            StripeException exception) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_GATEWAY,
+                "Ödeme sağlayıcısına şu anda ulaşılamıyor. Lütfen daha sonra tekrar deneyin."
+        );
+    }
+
+    @ExceptionHandler(SignatureVerificationException.class)
+    public ResponseEntity<ErrorResponse> handleSignatureVerificationException(
+            SignatureVerificationException exception) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "Webhook imzası doğrulanamadı."
+        );
+    }
+
+    @ExceptionHandler(ApiKeyMissingException.class)
+    public ResponseEntity<ErrorResponse> handleApiKeyMissingException(
+            ApiKeyMissingException exception) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_GATEWAY,
+                "Ödeme sağlayıcısı yapılandırması şu anda kullanılamıyor."
+        );
     }
 }

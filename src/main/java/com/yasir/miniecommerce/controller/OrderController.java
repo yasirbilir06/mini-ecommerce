@@ -1,7 +1,9 @@
 package com.yasir.miniecommerce.controller;
 
+import com.stripe.exception.StripeException;
 import com.yasir.miniecommerce.dto.OrderRequest;
 import com.yasir.miniecommerce.dto.OrderResponse;
+import com.yasir.miniecommerce.dto.PaymentIntentResponse;
 import com.yasir.miniecommerce.dto.UpdateOrderStatusRequest;
 import com.yasir.miniecommerce.service.OrderService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -35,6 +37,14 @@ public class OrderController {
             @Valid @RequestBody OrderRequest orderRequest) {
 
         return orderService.createOrder(orderRequest, idempotencyKey);
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/{orderId}/payment-intent")
+    public PaymentIntentResponse createPaymentIntent(@PathVariable Long orderId)
+            throws StripeException {
+
+        return orderService.createPaymentIntent(orderId);
     }
 
     // Giriş yapan kullanıcının siparişlerini listele.

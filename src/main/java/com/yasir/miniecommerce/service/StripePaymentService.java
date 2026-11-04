@@ -3,20 +3,36 @@ package com.yasir.miniecommerce.service;
 
 import com.stripe.StripeClient;
 import com.stripe.exception.StripeException;
+import com.stripe.exception.SignatureVerificationException;
+import com.stripe.model.Event;
 import com.stripe.model.PaymentIntent;
+import com.stripe.model.StripeObject;
+import com.stripe.net.Webhook;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
+import java.util.Optional;
 
 @Service
 public class StripePaymentService {
 
     private final StripeClient stripeClient;
+    private final String webhookSigningSecret;
 
-    public StripePaymentService(StripeClient stripeClient) {
+    public StripePaymentService(
+            StripeClient stripeClient,
+            @Value("${stripe.webhook-secret}") String webhookSigningSecret) {
+
         this.stripeClient = stripeClient;
+        if (webhookSigningSecret == null || webhookSigningSecret.isBlank()) {
+            throw new IllegalStateException(
+                    "Stripe webhook signing secret must be configured."
+            );
+        }
+        this.webhookSigningSecret = webhookSigningSecret;
     }
 
     public PaymentIntent createPaymentIntent(
@@ -70,5 +86,53 @@ public class StripePaymentService {
         return stripeClient.v1()
                 .paymentIntents()
                 .create(params, requestOptions);
+    }
+
+    public PaymentIntent retrievePaymentIntent(String paymentIntentId)
+            throws StripeException {
+
+        if (paymentIntentId == null || paymentIntentId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "PaymentIntent ID cannot be empty."
+            );
+        }
+
+        return stripeClient.v1()
+                .paymentIntents()
+                .retrieve(paymentIntentId);
+    }
+
+    public Optional<PaymentIntent> verifyPaymentIntentSucceededWebhook(
+            String rawPayload,
+            String signatureHeader) throws SignatureVerificationException {
+
+        if (rawPayload == null || signatureHeader == null || signatureHeader.isBlank()) {
+            throw new SignatureVerificationException(
+                    "Webhook signature verification failed.",
+                    signatureHeader
+            );
+        }
+
+        Event event = Webhook.constructEvent(
+                rawPayload,
+                signatureHeader,
+                webhookSigningSecret
+        );
+
+        if (!"payment_intent.succeeded".equals(event.getType())) {
+            return Optional.empty();
+        }
+
+        StripeObject eventObject = event.getDataObjectDeserializer()
+                .getObject()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Webhook event payload is invalid."
+                ));
+
+        if (!(eventObject instanceof PaymentIntent paymentIntent)) {
+            throw new IllegalArgumentException("Webhook event payload is invalid.");
+        }
+
+        return Optional.of(paymentIntent);
     }
 }
