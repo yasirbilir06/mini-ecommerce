@@ -1,7 +1,6 @@
 package com.yasir.miniecommerce.controller;
 
 import com.stripe.exception.SignatureVerificationException;
-import com.yasir.miniecommerce.service.OrderService;
 import com.yasir.miniecommerce.service.StripePaymentService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -11,20 +10,21 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import com.yasir.miniecommerce.service.StripeWebhookEventService;
 
 @RestController
 @RequestMapping("/api/stripe")
 public class StripeWebhookController {
 
     private final StripePaymentService stripePaymentService;
-    private final OrderService orderService;
+    private final StripeWebhookEventService stripeWebhookEventService;
 
     public StripeWebhookController(
             StripePaymentService stripePaymentService,
-            OrderService orderService) {
+            StripeWebhookEventService stripeWebhookEventService) {
 
         this.stripePaymentService = stripePaymentService;
-        this.orderService = orderService;
+        this.stripeWebhookEventService = stripeWebhookEventService;
     }
 
     @PostMapping(value = "/webhook", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -36,6 +36,6 @@ public class StripeWebhookController {
 
         stripePaymentService
                 .verifyPaymentIntentSucceededWebhook(rawPayload, signatureHeader)
-                .ifPresent(orderService::handlePaymentIntentSucceeded);
+                .ifPresent(stripeWebhookEventService::processVerifiedEvent);
     }
 }

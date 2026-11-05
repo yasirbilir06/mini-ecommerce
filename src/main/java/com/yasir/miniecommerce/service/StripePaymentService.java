@@ -10,6 +10,7 @@ import com.stripe.model.StripeObject;
 import com.stripe.net.Webhook;
 import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
+import com.yasir.miniecommerce.dto.VerifiedStripeEvent;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -102,7 +103,7 @@ public class StripePaymentService {
                 .retrieve(paymentIntentId);
     }
 
-    public Optional<PaymentIntent> verifyPaymentIntentSucceededWebhook(
+    public Optional<VerifiedStripeEvent> verifyPaymentIntentSucceededWebhook(
             String rawPayload,
             String signatureHeader) throws SignatureVerificationException {
 
@@ -133,6 +134,12 @@ public class StripePaymentService {
             throw new IllegalArgumentException("Webhook event payload is invalid.");
         }
 
-        return Optional.of(paymentIntent);
+        return Optional.of(
+                new VerifiedStripeEvent(
+                        event.getId(),
+                        event.getType(),
+                        paymentIntent
+                )
+        );
     }
 }
