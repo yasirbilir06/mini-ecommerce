@@ -30,6 +30,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.userRepository = userRepository;
         this.authenticationEntryPoint = authenticationEntryPoint;
     }
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return "POST".equalsIgnoreCase(request.getMethod())
+                && "/api/stripe/webhook".equals(request.getServletPath());
+    }
 
 
     @Override

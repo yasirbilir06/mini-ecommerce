@@ -1,5 +1,6 @@
 package com.yasir.miniecommerce.service;
 
+import com.yasir.miniecommerce.model.StripeWebhookEventStatus;
 import com.yasir.miniecommerce.repository.StripeWebhookEventRepository;
 import org.springframework.stereotype.Service;
 import com.yasir.miniecommerce.model.StripeWebhookEvent;
@@ -94,5 +95,11 @@ public class StripeWebhookEventTransaction {
                 ));
 
         return event.markAsRequiresReview(processingToken, errorMessage);
+    }
+    @Transactional(propagation = Propagation.REQUIRES_NEW, readOnly = true)
+    public Optional<StripeWebhookEventStatus> findEventStatus(String eventId) {
+
+        return stripeWebhookEventRepository.findByEventId(eventId)
+                .map(StripeWebhookEvent::getStatus);
     }
 }

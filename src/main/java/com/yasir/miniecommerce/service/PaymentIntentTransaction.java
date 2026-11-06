@@ -178,11 +178,20 @@ public class PaymentIntentTransaction {
         }
 
         if (order.getPaymentStatus() == PaymentStatus.PAID) {
-            if (existingPaymentIntentId == null) {
+
+            if (existingPaymentIntentId == null
+                    || !existingPaymentIntentId.equals(paymentIntentId)) {
                 throw new PaymentStateConflictException(
-                        "Ödenmiş siparişin ödeme girişimi eksik."
+                        "Ödenmiş siparişin ödeme girişimi eşleşmiyor."
                 );
             }
+
+            if (order.getStatus() != OrderStatus.CONFIRMED) {
+                throw new PaymentStateConflictException(
+                        "Ödeme yapılmış siparişin durumu geçersiz."
+                );
+            }
+
             return;
         }
 

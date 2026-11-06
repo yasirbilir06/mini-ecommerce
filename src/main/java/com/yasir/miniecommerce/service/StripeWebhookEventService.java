@@ -1,192 +1,235 @@
 
-package com.yasir.miniecommerce.service;
+    package com.yasir.miniecommerce.service;
 
-import com.yasir.miniecommerce.dto.VerifiedStripeEvent;
-import com.yasir.miniecommerce.exception.PaymentStateConflictException;
-import com.yasir.miniecommerce.model.StripeWebhookEvent;
-import com.yasir.miniecommerce.repository.StripeWebhookEventRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.stereotype.Service;
+    import com.yasir.miniecommerce.dto.VerifiedStripeEvent;
+    import com.yasir.miniecommerce.exception.PaymentStateConflictException;
+    import com.yasir.miniecommerce.model.StripeWebhookEvent;
+    import com.yasir.miniecommerce.model.StripeWebhookEventStatus;
+    import com.yasir.miniecommerce.repository.StripeWebhookEventRepository;
+    import org.slf4j.Logger;
+    import org.slf4j.LoggerFactory;
+    import org.springframework.dao.DataIntegrityViolationException;
+    import org.springframework.stereotype.Service;
 
-import java.util.Optional;
+    import java.util.Optional;
 
-@Service
-public class StripeWebhookEventService {
+    @Service
+    public class StripeWebhookEventService {
 
-    private static final Logger logger =
-            LoggerFactory.getLogger(StripeWebhookEventService.class);
+        private static final Logger logger =
+                LoggerFactory.getLogger(StripeWebhookEventService.class);
 
-    private final StripeWebhookEventRepository stripeWebhookEventRepository;
-    private final OrderService orderService;
-    private final StripeWebhookEventTransaction stripeWebhookEventTransaction;
+        private final StripeWebhookEventRepository stripeWebhookEventRepository;
+        private final OrderService orderService;
+        private final StripeWebhookEventTransaction stripeWebhookEventTransaction;
 
-    public StripeWebhookEventService(
-            StripeWebhookEventRepository stripeWebhookEventRepository,
-            StripeWebhookEventTransaction stripeWebhookEventTransaction,
-            OrderService orderService) {
+        public StripeWebhookEventService(
+                StripeWebhookEventRepository stripeWebhookEventRepository,
+                StripeWebhookEventTransaction stripeWebhookEventTransaction,
+                OrderService orderService) {
 
-        this.stripeWebhookEventRepository = stripeWebhookEventRepository;
-        this.stripeWebhookEventTransaction = stripeWebhookEventTransaction;
-        this.orderService = orderService;
-    }
-
-    public Optional<StripeWebhookEvent> findExistingEvent(String eventId) {
-        return stripeWebhookEventRepository.findByEventId(eventId);
-    }
-
-    public StripeWebhookEvent registerEvent(
-            String eventId,
-            String eventType
-    ) {
-        return stripeWebhookEventTransaction.registerEvent(eventId, eventType);
-    }
-
-    public Optional<String> tryMarkAsProcessing(String eventId) {
-        return stripeWebhookEventTransaction.tryMarkAsProcessing(eventId);
-    }
-
-    public boolean markEventAsProcessed(
-            String eventId,
-            String processingToken
-    ) {
-        return stripeWebhookEventTransaction.markEventAsProcessed(
-                eventId,
-                processingToken
-        );
-    }
-
-    public boolean markEventAsFailed(
-            String eventId,
-            String processingToken,
-            String errorMessage
-    ) {
-        return stripeWebhookEventTransaction.markEventAsFailed(
-                eventId,
-                processingToken,
-                errorMessage
-        );
-    }
-
-    public boolean markEventAsRequiresReview(
-            String eventId,
-            String processingToken,
-            String errorMessage
-    ) {
-        return stripeWebhookEventTransaction.markEventAsRequiresReview(
-                eventId,
-                processingToken,
-                errorMessage
-        );
-    }
-
-    public void processVerifiedEvent(VerifiedStripeEvent verifiedEvent) {
-
-        String eventId = verifiedEvent.eventId();
-        String eventType = verifiedEvent.eventType();
-
-        Optional<StripeWebhookEvent> existingEvent =
-                findExistingEvent(eventId);
-
-        if (existingEvent.isEmpty()) {
-            try {
-                registerEvent(eventId, eventType);
-
-            } catch (DataIntegrityViolationException exception) {
-                logger.debug(
-                        "Webhook event zaten kaydedilmiş olabilir. Event ID: {}",
-                        eventId
-                );
-            }
+            this.stripeWebhookEventRepository = stripeWebhookEventRepository;
+            this.stripeWebhookEventTransaction = stripeWebhookEventTransaction;
+            this.orderService = orderService;
         }
 
-        if (findExistingEvent(eventId).isEmpty()) {
-            throw new IllegalStateException(
-                    "Webhook event kaydedilemedi: " + eventId
+        public Optional<StripeWebhookEvent> findExistingEvent(String eventId) {
+            return stripeWebhookEventRepository.findByEventId(eventId);
+        }
+        public Optional<StripeWebhookEventStatus> findEventStatus(String eventId) {
+            return stripeWebhookEventTransaction.findEventStatus(eventId);
+        }
+
+        public StripeWebhookEvent registerEvent(
+                String eventId,
+                String eventType
+        ) {
+            return stripeWebhookEventTransaction.registerEvent(eventId, eventType);
+        }
+
+        public Optional<String> tryMarkAsProcessing(String eventId) {
+            return stripeWebhookEventTransaction.tryMarkAsProcessing(eventId);
+        }
+
+        public boolean markEventAsProcessed(
+                String eventId,
+                String processingToken
+        ) {
+            return stripeWebhookEventTransaction.markEventAsProcessed(
+                    eventId,
+                    processingToken
             );
         }
 
-        Optional<String> processingTokenOptional =
-                tryMarkAsProcessing(eventId);
-
-        if (processingTokenOptional.isEmpty()) {
-            return;
+        public boolean markEventAsFailed(
+                String eventId,
+                String processingToken,
+                String errorMessage
+        ) {
+            return stripeWebhookEventTransaction.markEventAsFailed(
+                    eventId,
+                    processingToken,
+                    errorMessage
+            );
         }
 
-        String processingToken = processingTokenOptional.get();
-
-        try {
-            orderService.handlePaymentIntentSucceeded(
-                    verifiedEvent.paymentIntent()
+        public boolean markEventAsRequiresReview(
+                String eventId,
+                String processingToken,
+                String errorMessage
+        ) {
+            return stripeWebhookEventTransaction.markEventAsRequiresReview(
+                    eventId,
+                    processingToken,
+                    errorMessage
             );
+        }
 
-            boolean markedAsProcessed =
-                    markEventAsProcessed(eventId, processingToken);
+        public void processVerifiedEvent(VerifiedStripeEvent verifiedEvent) {
 
-            if (!markedAsProcessed) {
-                logger.warn(
-                        "Webhook event PROCESSED yapılamadı. "
-                                + "İşlem sahipliği değişmiş olabilir. Event ID: {}",
-                        eventId
-                );
-            }
+            String eventId = verifiedEvent.eventId();
+            String eventType = verifiedEvent.eventType();
 
-        } catch (PaymentStateConflictException exception) {
+            Optional<StripeWebhookEvent> existingEvent =
+                    findExistingEvent(eventId);
 
-            try {
-                boolean markedAsRequiresReview =
-                        markEventAsRequiresReview(
-                                eventId,
-                                processingToken,
-                                exception.getMessage()
-                        );
+            if (existingEvent.isEmpty()) {
+                try {
+                    registerEvent(eventId, eventType);
 
-                if (!markedAsRequiresReview) {
-                    logger.warn(
-                            "Webhook event REQUIRES_REVIEW yapılamadı. "
-                                    + "İşlem sahipliği değişmiş olabilir. Event ID: {}",
+                } catch (DataIntegrityViolationException exception) {
+                    logger.debug(
+                            "Webhook event zaten kaydedilmiş olabilir. Event ID: {}",
                             eventId
                     );
                 }
+            }
 
-            } catch (RuntimeException markingException) {
-                logger.error(
-                        "Webhook event REQUIRES_REVIEW olarak kaydedilemedi. Event ID: {}",
-                        eventId,
-                        markingException
+            if (findExistingEvent(eventId).isEmpty()) {
+                throw new IllegalStateException(
+                        "Webhook event kaydedilemedi: " + eventId
                 );
             }
 
-            throw exception;
+            Optional<String> processingTokenOptional =
+                    tryMarkAsProcessing(eventId);
 
-        } catch (RuntimeException exception) {
+            if (processingTokenOptional.isEmpty()) {
 
-            try {
-                boolean markedAsFailed =
-                        markEventAsFailed(
-                                eventId,
-                                processingToken,
-                                exception.getMessage()
-                        );
+                StripeWebhookEventStatus currentStatus =
+                        findEventStatus(eventId)
+                                .orElseThrow(() -> new IllegalStateException(
+                                        "Webhook event bulunamadı: " + eventId
+                                ));
 
-                if (!markedAsFailed) {
-                    logger.warn(
-                            "Webhook event FAILED yapılamadı. "
-                                    + "İşlem sahipliği değişmiş olabilir. Event ID: {}",
-                            eventId
+                if (currentStatus == StripeWebhookEventStatus.PROCESSED
+                        || currentStatus == StripeWebhookEventStatus.REQUIRES_REVIEW) {
+
+                    logger.info(
+                            "Webhook event daha önce tamamlanmış veya incelemeye alınmış. Event ID: {}, Status: {}",
+                            eventId,
+                            currentStatus
+                    );
+
+                    return;
+                }
+
+                if (currentStatus == StripeWebhookEventStatus.PROCESSING) {
+                    throw new IllegalStateException(
+                            "Webhook event başka bir işlem tarafından işleniyor: " + eventId
                     );
                 }
 
-            } catch (RuntimeException markingException) {
-                logger.error(
-                        "Webhook event FAILED olarak kaydedilemedi. Event ID: {}",
-                        eventId,
-                        markingException
+                throw new IllegalStateException(
+                        "Webhook event işleme alınamadı. Event ID: "
+                                + eventId + ", Status: " + currentStatus
                 );
             }
 
-            throw exception;
+            String processingToken = processingTokenOptional.get();
+
+            try {
+                orderService.handlePaymentIntentSucceeded(
+                        verifiedEvent.paymentIntent()
+                );
+
+                boolean markedAsProcessed =
+                        markEventAsProcessed(eventId, processingToken);
+
+                if (!markedAsProcessed) {
+                    throw new IllegalStateException(
+                            "Webhook event PROCESSED yapılamadı: " + eventId
+                    );
+                }
+
+            } catch (PaymentStateConflictException exception) {
+
+                try {
+                    boolean markedAsRequiresReview =
+                            markEventAsRequiresReview(
+                                    eventId,
+                                    processingToken,
+                                    exception.getMessage()
+                            );
+
+                    if (!markedAsRequiresReview) {
+                        throw new IllegalStateException(
+                                "Webhook event REQUIRES_REVIEW yapılamadı: "
+                                        + eventId
+                        );
+                    }
+
+                    logger.warn(
+                            "Webhook event manuel incelemeye alındı. Event ID: {}",
+                            eventId
+                    );
+
+                    // Manuel inceleme kaydı başarılı.
+                    // Stripe'a HTTP 200 dönebilmesi için normal tamamlanıyoruz.
+                    return;
+
+                } catch (RuntimeException markingException) {
+
+                    logger.error(
+                            "Webhook event REQUIRES_REVIEW olarak kaydedilemedi. Event ID: {}",
+                            eventId,
+                            markingException
+                    );
+
+                    throw new IllegalStateException(
+                            "Webhook event incelemeye alınamadı: " + eventId,
+                            markingException
+                    );
+                }
+
+            } catch (RuntimeException exception) {
+
+                try {
+                    boolean markedAsFailed =
+                            markEventAsFailed(
+                                    eventId,
+                                    processingToken,
+                                    exception.getMessage()
+                            );
+
+                    if (!markedAsFailed) {
+                        logger.warn(
+                                "Webhook event FAILED yapılamadı. "
+                                        + "İşlem sahipliği değişmiş olabilir. Event ID: {}",
+                                eventId
+                        );
+                    }
+
+                } catch (RuntimeException markingException) {
+
+                    logger.error(
+                            "Webhook event FAILED olarak kaydedilemedi. Event ID: {}",
+                            eventId,
+                            markingException
+                    );
+                }
+
+                throw exception;
+            }
         }
     }
-}
